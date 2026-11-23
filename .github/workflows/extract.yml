@@ -1,0 +1,64 @@
+name: Extract Beitna Project
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract ZIP safely
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          import stat
+          from pathlib import Path
+
+          archive = Path("beitna_expenses_source.zip")
+          root = Path.cwd().resolve()
+
+          if not archive.is_file():
+              raise SystemExit("ZIP file not found")
+
+          with zipfile.ZipFile(archive) as z:
+              for item in z.infolist():
+                  target = (root / item.filename).resolve()
+
+                  if not target.is_relative_to(root):
+                      raise SystemExit("Unsafe ZIP path")
+
+                  mode = item.external_attr >> 16
+
+                  if stat.S_ISLNK(mode):
+                      raise SystemExit("Symlink not allowed")
+
+                  if target == archive.resolve():
+                      raise SystemExit("Cannot overwrite ZIP")
+
+              z.extractall(root)
+
+          print("Project extracted successfully")
+          PY
+
+      - name: Commit extracted files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract Beitna project"
+            git push
+          else
+            echo "No new files"
+          fi
