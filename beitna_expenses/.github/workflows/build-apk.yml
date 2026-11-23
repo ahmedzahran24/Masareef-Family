@@ -1,0 +1,50 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android platform
+        run: flutter create --platforms android --project-name beitna_expenses --org com.beitna .
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Inject Firebase configuration
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
+          else
+            echo 'Missing GOOGLE_SERVICES_JSON_BASE64 GitHub secret' >&2
+            exit 1
+          fi
+      - name: Enable Google Services Gradle plugin
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/settings.gradle.kts')
+          s=p.read_text()
+          marker='plugins {'
+          s=s.replace(marker,marker+'\n    id("com.google.gms.google-services") version "4.4.2" apply false',1)
+          p.write_text(s)
+          p=Path('android/app/build.gradle.kts')
+          s=p.read_text().replace('plugins {','plugins {\n    id("com.google.gms.google-services")',1)
+          p.write_text(s)
+          PY
+      - name: Build APK
+        run: flutter build apk --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Beitna-Expenses-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
